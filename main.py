@@ -6,15 +6,17 @@ from fastapi.responses import StreamingResponse
 from fastapi.exceptions import RequestValidationError
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
+from dotenv import load_dotenv
 
 from helper import verify_auth, custom_http_exception_handler, custom_request_validation_error_handler, custom_rate_limit_handler
 from provider import run_mock_provider_chunked, run_llm_provider_chunked
 from provider import CHUNKBYTES
 
-
 import time
 import json
 import hashlib
+
+load_dotenv()  # Load environment variables from .env file
 
 
 # CONFIG

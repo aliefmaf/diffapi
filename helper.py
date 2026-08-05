@@ -1,8 +1,9 @@
 from fastapi import Header, HTTPException
 from fastapi.responses import JSONResponse
+import os
 
 
-VALID_TOKEN = "secret"
+VALID_TOKEN = os.environ.get("AUTH_TOKEN")
 
 
 async def custom_http_exception_handler(request, exc):
@@ -10,6 +11,7 @@ async def custom_http_exception_handler(request, exc):
         status_code=exc.status_code,
         content={"error": exc.detail}   # exc.detail should just be {"code": ..., "message": ...}
     )
+# usage: raise HTTPException(status_code=401, detail={"code": "unauthorized", "message": "Invalid or missing token"})
 
 async def custom_request_validation_error_handler(request, exc):
     # This handler is for validation errors raised by FastAPI (e.g., missing headers, invalid types)
@@ -31,5 +33,3 @@ async def verify_auth(authorization: str = Header(None)):
         raise HTTPException(status_code=401, detail={"code": "unauthorized", "message": "Invalid or missing token"})
 
 
-
-# usage: raise HTTPException(status_code=401, detail={"code": "unauthorized", "message": "Invalid or missing token"})
