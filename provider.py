@@ -1,3 +1,4 @@
+import asyncio
 import re
 import os
 from google import genai
@@ -247,10 +248,9 @@ Return ONLY a JSON array of findings, no other text, no markdown formatting. Eac
 """
 
 
-    response = genai_client.models.generate_content(
-        model="gemini-3.6-flash",
-        contents=prompt
-    )
+    response = await asyncio.to_thread(
+       genai_client.models.generate_content, model="gemini-3.6-flash", contents=prompt
+   )
     text = response.text.strip()
     if text.startswith("```"):
         text = text.split("```")[1]

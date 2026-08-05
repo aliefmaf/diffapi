@@ -109,7 +109,7 @@ Connecting to a finished job's stream must replay all events identically.
 
 
 # MAIN
-app = FastAPI()
+app = FastAPI(redirect_slashes=False)
 
 app.add_exception_handler(HTTPException, custom_http_exception_handler)
 app.add_exception_handler(RequestValidationError, custom_request_validation_error_handler)
