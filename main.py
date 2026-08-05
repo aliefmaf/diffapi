@@ -7,16 +7,17 @@ from fastapi.exceptions import RequestValidationError
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from dotenv import load_dotenv
+load_dotenv()  # Load environment variables from .env file
+
 
 from helper import verify_auth, custom_http_exception_handler, custom_request_validation_error_handler, custom_rate_limit_handler
-from provider import run_mock_provider_chunked, run_llm_provider_chunked
+from provider import run_mock_provider_chunked, run_llm_provider
 from provider import CHUNKBYTES
 
 import time
 import json
 import hashlib
 
-load_dotenv()  # Load environment variables from .env file
 
 
 # CONFIG
@@ -74,7 +75,7 @@ async def run_job(job_id):
             if provider == "mock":
                 findings, chunk_stats = run_mock_provider_chunked(diff, max_findings=jobs[job_id]["options"].get("maxFindings", 100))
             elif provider == "llm":
-                findings, chunk_stats = await run_llm_provider_chunked(diff, max_findings=jobs[job_id]["options"].get("maxFindings", 100))
+                findings, chunk_stats = await run_llm_provider(diff, max_findings=jobs[job_id]["options"].get("maxFindings", 100))
 
             for finding in findings:
                 jobs[job_id]["events"].append({"event": "finding", "data": finding})
@@ -94,6 +95,7 @@ async def run_job(job_id):
 def get_token_key(request: Request):
     auth_header = request.headers.get("Authorization", "")
     return auth_header  # or strip "Bearer " prefix if you want just the token itself
+
 # Initialize Limiter
 limiter = Limiter(key_func=get_token_key)
 
@@ -192,12 +194,17 @@ FORMAT
 @app.get("/v1/reviews/{job_id}", dependencies=[Depends(verify_auth)])
 async def get_review(job_id: str):
     if job_id in jobs:
-        return {"jobId": job_id,
-                "status": jobs[job_id]["status"],
-                "findings": jobs[job_id].get("findings"),
-                "usage": jobs[job_id].get("usage"),
-                "error": jobs[job_id].get("error")
-                }
+        response = {
+            "jobId": job_id,
+            "status": jobs[job_id]["status"],
+            "findings": jobs[job_id]["findings"],
+            "usage": jobs[job_id]["usage"],
+        }
+
+        if jobs[job_id]["status"] == "failed":
+            response["error"] = jobs[job_id].get("error")
+
+        return response
     else:
         raise HTTPException(status_code=404, detail={"code": "not_found", "message": "Unknown jobId"})
 
