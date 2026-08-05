@@ -35,15 +35,57 @@ def parse_added_lines(diff_text):
             if new_line_num is not None:
                 new_line_num += 1
 
+def split_into_file_blocks(diff_text):
+    """Split a diff into a list of per-file diff blocks."""
+    lines = diff_text.split("\n")
+    blocks = []
+    current_block = []
+
+    for line in lines:
+        if line.startswith("--- ") and current_block:
+            # new file starting — close off the previous block
+            blocks.append("\n".join(current_block))
+            current_block = [line]
+        else:
+            current_block.append(line)
+
+    if current_block:
+        blocks.append("\n".join(current_block))
+
+    return blocks
+
+CHUNKBYTES = 65536  # 64 KiB
+
+def group_into_chunks(file_blocks, max_bytes=CHUNKBYTES):
+    chunks = []
+    current_chunk_blocks = []
+    current_size = 0
+
+    for block in file_blocks:
+        block_size = len(block.encode())
+
+        if current_chunk_blocks and current_size + block_size > max_bytes:
+            # would overflow — close current chunk, start new one
+            chunks.append("\n".join(current_chunk_blocks))
+            current_chunk_blocks = [block]
+            current_size = block_size
+        else:
+            current_chunk_blocks.append(block)
+            current_size += block_size
+
+    if current_chunk_blocks:
+        chunks.append("\n".join(current_chunk_blocks))
+
+    return chunks
 
 
 # MOCK PROVIDER RULES
 
-SQL_KEYWORDS = r"(SELECT|INSERT|UPDATE|DELETE)"
 API_KEY_PATTERN = re.compile(
     r"(api[_-]?key|secret|token)\s*[:=]\s*['\"][A-Za-z0-9_\-]{16,}['\"]",
     re.IGNORECASE
 )
+SQL_KEYWORDS = r"(SELECT|INSERT|UPDATE|DELETE)"
 SQL_CONCAT_PATTERN = re.compile(
     rf"['\"][^'\"]*{SQL_KEYWORDS}[^'\"]*['\"]\s*\+", re.IGNORECASE
 )
@@ -59,7 +101,69 @@ def check_mock_002(line):
 def check_mock_003(line):
     return bool(SQL_CONCAT_PATTERN.search(line))
 
+def check_mock_004(diff_text):
+    findings = []
+    in_catch = False
+    catch_start_line = None
+    catch_start_path = None
+    catch_body_has_content = False
 
+    for file_path, line_num, content in parse_added_lines(diff_text):
+        if not in_catch:
+            match = re.search(r"catch\s*\(.*?\)\s*\{", content)
+            if match:
+                # check if it also closes on this same line
+                if re.search(r"catch\s*\(.*?\)\s*\{\s*\}", content):
+                    findings.append(make_finding("MOCK-004", "high", "correctness",
+                                                  file_path, line_num, "swallowed exception", content))
+                else:
+                    in_catch = True
+                    catch_start_line = line_num
+                    catch_start_path = file_path
+                    catch_start_content = content
+                    catch_body_has_content = False
+        else:
+            if "}" in content:
+                if not catch_body_has_content:
+                    findings.append(make_finding("MOCK-004", "high", "correctness",
+                                                  catch_start_path, catch_start_line, "swallowed exception", catch_start_content))
+                in_catch = False
+            elif content.strip():
+                catch_body_has_content = True
+
+    return findings
+
+def check_mock_005(line):
+    return "== null" in line or "!= null" in line or "==null" in line or "!=null" in line
+
+def check_mock_006(line):
+    return "JSON.parse(JSON.stringify(" in line
+
+def check_mock_007(line):   
+    return "console.log(" in line
+
+def check_mock_008(line):
+    return "TODO" in line or "FIXME" in line
+
+def check_mock_inj(line):
+    return any(phrase in line.lower() for phrase in [
+        "ignore previous instructions",
+        "disregard all prior",
+        "you are now"
+    ])
+
+'''
+ruleId	severity	category	trigger (on the added line)	title
+MOCK-001	critical	security	contains eval(	eval usage
+MOCK-002	critical	security	matches `/(api[_-]?key	secret
+MOCK-003	high	security	SQL keyword (SELECT, INSERT, UPDATE, DELETE) inside a string concatenated with +	SQL string concatenation
+MOCK-004	high	correctness	empty catch block (may span lines; report the catch line)	swallowed exception
+MOCK-005	medium	correctness	== null or != null	loose null comparison
+MOCK-006	medium	performance	JSON.parse(JSON.stringify(	deep-clone via JSON
+MOCK-007	low	style	contains console.log(	console.log left in
+MOCK-008	low	style	contains TODO or FIXME	unresolved marker
+MOCK-INJ	critical	security	contains, case-insensitive, ignore previous instructions or disregard all prior or you are now	prompt-injection content
+'''
 
 def run_mock_provider(diff_text):
     findings = []
@@ -73,8 +177,54 @@ def run_mock_provider(diff_text):
         if check_mock_003(content):
             findings.append(make_finding("MOCK-003", "high", "security",
                                           file_path, line_num, "SQL string concatenation", content))
+        if check_mock_005(content):
+            findings.append(make_finding("MOCK-005", "medium", "correctness",
+                                        file_path, line_num, "loose null comparison", content))
+        if check_mock_006(content):
+            findings.append(make_finding("MOCK-006", "medium", "performance",
+                                        file_path, line_num, "deep-clone via JSON", content))
+        if check_mock_007(content):
+            findings.append(make_finding("MOCK-007", "low", "style",
+                                        file_path, line_num, "console.log left in", content))
+        if check_mock_008(content):
+            findings.append(make_finding("MOCK-008", "low", "style",
+                                        file_path, line_num, "unresolved marker", content))
+        if check_mock_inj(content):
+            findings.append(make_finding("MOCK-INJ", "critical", "security",
+                                        file_path, line_num, "prompt-injection content", content))
+    findings.extend(check_mock_004(diff_text))  # separate pass, appended to the same list
+
+
     return findings
 
+
+def run_mock_provider_chunked(diff_text, max_findings=100):
+    file_blocks = split_into_file_blocks(diff_text)
+    chunks = group_into_chunks(file_blocks)
+
+    all_findings = []
+    for chunk in chunks:
+        all_findings.extend(run_mock_provider(chunk))  # your existing per-line rule logic
+
+    # dedupe by id
+    seen = set()
+    deduped = []
+    for f in all_findings:
+        if f["id"] not in seen:
+            seen.add(f["id"])
+            deduped.append(f)
+
+    # sort: path, then line, then ruleId
+    deduped.sort(key=lambda f: (f["path"], f["line"], f["ruleId"]))
+
+    full_count = len(deduped)
+    truncated = deduped[:max_findings]
+
+    return truncated, {"chunks": len(chunks), "fullFindingsCount": full_count}
+
+
+def run_llm_provider_chunked(diff_text, max_findings=100):
+    raise NotImplementedError("LLM provider not configured. No model credentials available on this server")
 
 
 def make_finding(rule_id, severity, category, path, line, title, evidence):
