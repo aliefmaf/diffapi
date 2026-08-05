@@ -193,7 +193,8 @@ async def get_review(job_id: str):
         return {"jobId": job_id,
                 "status": jobs[job_id]["status"],
                 "findings": jobs[job_id].get("findings"),
-                "usage": jobs[job_id].get("usage")
+                "usage": jobs[job_id].get("usage"),
+                "error": jobs[job_id].get("error")
                 }
     else:
         raise HTTPException(status_code=404, detail={"code": "not_found", "message": "Unknown jobId"})
