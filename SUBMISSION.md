@@ -35,7 +35,7 @@ Claude (free tier) — used throughout for:
 
 ## AI Suggestion I Rejected
 
-The AI suggested me to just throw an error when `provider="llm"` to show it fails gracefully. I insisted on using proper LLM API since it's part of the marking evaluation and is not soo hard to configure.
+The AI suggested me to just throw an error when `provider="llm"` to show it fails gracefully. I insisted on using proper LLM API call since it's part of the marking evaluation and is not soo hard to configure.
 
 ## What I'd Do With More Time
 
