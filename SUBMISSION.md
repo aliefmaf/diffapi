@@ -24,6 +24,7 @@
 - **SSE replay**: confirmed replay of a finished job's. Added a temporary artificial delay(`asyncio.sleep(10)`) in `run_job` to force a live-connection window, and confirmed events stream while a job is still processing.
 - **Concurrency**: fired 9 simultaneous jobs via script. Confirmed a max of 4 jobs `running` at any moment (matching the semaphore limit), remaining jobs correctly `queued`.
 - **Rate limiting**: downscaled to 5/minute for testing, fired 10 rapid requests, confirmed clean `429` responses and `Retry-After`.
+- **Auth robustness**: while testing through Cloudflare Tunnel, found that trailing-slash requests (e.g. `/v1/reviews/`) triggered a 307 redirect whose follow-up request dropped the Authorization header. With no header, no bearer token, it produced a confusing 401. Fixed by setting `redirect_slashes=False`, so mismatched paths now return a clean 404 instead of a redirect.
 
 ## AI Tools Used
 
